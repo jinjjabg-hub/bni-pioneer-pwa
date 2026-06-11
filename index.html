@@ -504,10 +504,11 @@
       </div>
 
       <!-- Tabs -->
-      <div class="flex gap-2 mb-4 p-1 rounded-xl" style="background:rgba(229,238,255,.5);">
-        <button class="atab active flex-1" id="atab-members" onclick="window.switchAdminTab('members')">멤버 관리</button>
-        <button class="atab flex-1" id="atab-visitors" onclick="window.switchAdminTab('visitors')">방문자 신청</button>
-        <button class="atab flex-1" id="atab-config" onclick="window.switchAdminTab('config')">챕터 설정</button>
+      <div class="flex gap-2 mb-4 p-1 rounded-xl" style="background:rgba(229,238,255,.5);overflow-x:auto;">
+        <button class="atab active flex-1" id="atab-members" onclick="window.switchAdminTab('members')" style="white-space:nowrap;">멤버 관리</button>
+        <button class="atab flex-1" id="atab-visitors" onclick="window.switchAdminTab('visitors')" style="white-space:nowrap;">방문자 신청</button>
+        <button class="atab flex-1" id="atab-config" onclick="window.switchAdminTab('config')" style="white-space:nowrap;">챕터 설정</button>
+        <button class="atab flex-1" id="atab-ops" onclick="window.switchAdminTab('ops')" style="white-space:nowrap;">운영진 관리</button>
       </div>
 
       <!-- Tab: Members -->
@@ -620,7 +621,64 @@
         </form>
       </div>
 
+      <!-- Tab: 운영진 관리 -->
+      <div id="admin-tab-ops" class="hidden">
+        <div class="flex justify-between items-center mb-3">
+          <p class="font-semibold">운영진(관리자) 목록</p>
+          <button onclick="window.loadAdminOps()" class="btn-ghost" style="padding:7px 12px;font-size:12px;">
+            <span class="material-symbols-outlined" style="font-size:15px;">refresh</span>새로고침
+          </button>
+        </div>
+
+        <!-- 내 UID 표시 -->
+        <div class="card mb-4" style="background:rgba(229,238,255,.5);border:1px solid rgba(146,110,105,.15);">
+          <p class="font-mono-bni text-xs mb-1" style="color:#725c00;">내 UID (현재 로그인)</p>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <code id="my-uid-display" style="font-family:'JetBrains Mono',monospace;font-size:12px;background:white;padding:6px 10px;border-radius:6px;flex:1;word-break:break-all;color:#0b1c30;border:1px solid rgba(146,110,105,.2);"></code>
+            <button onclick="window.copyMyUid()" class="btn-ghost" style="padding:6px 10px;font-size:12px;flex-shrink:0;">복사</button>
+          </div>
+        </div>
+
+        <!-- 운영진 추가 -->
+        <div class="card mb-4">
+          <p class="font-mono-bni text-xs mb-3" style="color:#725c00;">운영진 추가</p>
+          <div style="display:flex;gap:8px;margin-top:4px;">
+            <input type="text" id="ops-new-uid" class="inp" style="flex:2;font-size:12px;font-family:'JetBrains Mono',monospace;" placeholder="Firebase Auth UID">
+            <input type="text" id="ops-new-name" class="inp" style="flex:1;font-size:13px;" placeholder="이름">
+            <button onclick="window.addAdminOps()" class="btn-r" style="padding:10px 14px;flex-shrink:0;font-size:13px;">추가</button>
+          </div>
+        </div>
+
+        <div id="admin-ops-list" class="space-y-2">
+          <div class="text-sm text-center py-8" style="color:#9ca3af;">로딩중...</div>
+        </div>
+
+        <!-- 초기 설정 가이드 -->
+        <div class="card mt-4" style="background:rgba(254,215,82,.08);border:1px solid rgba(184,150,12,.25);">
+          <p class="font-mono-bni text-xs mb-2" style="color:#B8960C;">최초 운영진 설정 방법</p>
+          <p class="text-xs leading-relaxed" style="color:#5e3f3a;">
+            첫 번째 운영진은 Firebase 콘솔에서 직접 추가해야 합니다.<br>
+            <strong>Firestore → admins 컬렉션 → 문서 추가</strong><br>
+            문서 ID = 위의 내 UID, 필드: <code style="background:rgba(0,0,0,.06);padding:1px 4px;border-radius:3px;">role: "admin"</code>
+          </p>
+        </div>
+      </div>
+
     </div><!-- /admin-panel -->
+
+    <!-- 권한 없음 패널 (운영진 아닌 경우) -->
+    <div id="admin-no-access" class="hidden text-center py-12">
+      <span class="material-symbols-outlined" style="font-size:52px;color:#CC0000;">lock</span>
+      <p class="font-headline font-bold text-xl mt-3">접근 권한 없음</p>
+      <p class="text-sm mt-2" style="color:#9ca3af;">이 계정은 운영진 권한이 없습니다.</p>
+      <div class="card mt-4 text-left max-w-sm mx-auto">
+        <p class="font-mono-bni text-xs mb-2" style="color:#725c00;">내 Firebase UID</p>
+        <code id="no-access-uid" style="font-family:'JetBrains Mono',monospace;font-size:11px;background:#f3f4f6;padding:8px 10px;border-radius:6px;display:block;word-break:break-all;color:#0b1c30;"></code>
+        <p class="text-xs mt-2" style="color:#9ca3af;">운영진에게 위 UID를 전달하여 권한 등록을 요청하세요.</p>
+      </div>
+      <button onclick="window.adminLogout()" class="btn-ghost mt-4">로그아웃</button>
+    </div>
+
   </section>
 
 </main>
@@ -1079,10 +1137,23 @@ function loadAdmin() {
   }
 }
 
-function showAdminPanel() {
+async function showAdminPanel() {
   document.getElementById('admin-login').style.display = 'none';
+
+  // 운영진 권한 확인
+  const adminSnap = await getDoc(doc(db, 'admins', currentUser.uid));
+  if (!adminSnap.exists()) {
+    // 권한 없음 처리
+    document.getElementById('admin-panel').classList.add('hidden');
+    document.getElementById('admin-no-access').classList.remove('hidden');
+    document.getElementById('no-access-uid').textContent = currentUser.uid;
+    return;
+  }
+
+  document.getElementById('admin-no-access').classList.add('hidden');
   document.getElementById('admin-panel').classList.remove('hidden');
   document.getElementById('admin-user-email').textContent = currentUser.email;
+  document.getElementById('my-uid-display').textContent = currentUser.uid;
   loadAdminMembers();
   loadAdminStats();
 }
@@ -1101,12 +1172,13 @@ async function loadAdminStats() {
 }
 
 window.switchAdminTab = function(tab) {
-  ['members','visitors','config'].forEach(t => {
+  ['members','visitors','config','ops'].forEach(t => {
     document.getElementById('admin-tab-' + t).classList.toggle('hidden', t !== tab);
     document.getElementById('atab-' + t).classList.toggle('active', t === tab);
   });
   if (tab === 'visitors') loadAdminVisitors();
   if (tab === 'config') loadAdminConfig();
+  if (tab === 'ops') window.loadAdminOps();
 };
 
 // Admin: Member Management
@@ -1346,7 +1418,70 @@ window.adminLogout = async function() {
   await signOut(auth);
   document.getElementById('admin-login').style.display = '';
   document.getElementById('admin-panel').classList.add('hidden');
+  document.getElementById('admin-no-access').classList.add('hidden');
   showToast('로그아웃 되었습니다.');
+};
+
+// 운영진 관리
+window.loadAdminOps = async function() {
+  const list = document.getElementById('admin-ops-list');
+  list.innerHTML = '<div class="text-sm text-center py-6" style="color:#9ca3af;">로딩중...</div>';
+  try {
+    const snap = await getDocs(collection(db, 'admins'));
+    const admins = snap.docs.map(d => ({uid: d.id, ...d.data()}));
+    list.innerHTML = admins.length === 0
+      ? '<div class="text-sm text-center py-6" style="color:#9ca3af;">등록된 운영진이 없습니다.<br>Firebase 콘솔에서 최초 운영진을 추가하세요.</div>'
+      : admins.map(a => `
+          <div class="card" style="padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+            <div style="min-width:0;flex:1;">
+              <p style="font-weight:600;font-size:14px;">${a.name || a.email || '이름 없음'}</p>
+              <code style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#9ca3af;word-break:break-all;">${a.uid}</code>
+              ${a.uid === currentUser.uid ? '<span style="font-size:11px;color:#CC0000;font-weight:600;"> (나)</span>' : ''}
+            </div>
+            ${a.uid !== currentUser.uid ? `<button class="btn-sm-ghost" onclick="window.removeAdminOps('${a.uid}','${(a.name||a.email||'').replace(/'/g,'')}')">제거</button>` : ''}
+          </div>`).join('');
+  } catch(e) {
+    list.innerHTML = `<div class="text-sm text-center py-6" style="color:#CC0000;">오류: ${e.message}</div>`;
+  }
+};
+
+window.copyMyUid = function() {
+  const uid = currentUser?.uid;
+  if (!uid) return;
+  navigator.clipboard?.writeText(uid).then(() => showToast('UID가 복사되었습니다.', 'success'));
+};
+
+window.addAdminOps = async function() {
+  const uidInput = document.getElementById('ops-new-uid');
+  const nameInput = document.getElementById('ops-new-name');
+  const uid = uidInput.value.trim();
+  if (!uid) { showToast('UID를 입력하세요.', 'error'); return; }
+  try {
+    await setDoc(doc(db, 'admins', uid), {
+      name: nameInput.value.trim() || null,
+      addedBy: currentUser.uid,
+      addedAt: serverTimestamp(),
+      role: 'admin',
+    });
+    showToast('운영진이 추가되었습니다.', 'success');
+    uidInput.value = '';
+    nameInput.value = '';
+    window.loadAdminOps();
+  } catch(err) {
+    showToast('오류: ' + err.message, 'error');
+  }
+};
+
+window.removeAdminOps = async function(uid, name) {
+  if (uid === currentUser.uid) { showToast('본인은 제거할 수 없습니다.', 'error'); return; }
+  if (!confirm(`"${name || uid}" 운영진 권한을 제거하시겠습니까?`)) return;
+  try {
+    await deleteDoc(doc(db, 'admins', uid));
+    showToast('운영진에서 제거되었습니다.', 'success');
+    window.loadAdminOps();
+  } catch(err) {
+    showToast('오류: ' + err.message, 'error');
+  }
 };
 
 // ── Firebase CRUD ────────────────────────────────────────────────

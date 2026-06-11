@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 운영진(admin) 여부 확인: /admins/{uid} 문서가 존재하면 관리자
+    function isAdmin() {
+      return request.auth != null &&
+             exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // 멤버 디렉토리: 누구나 읽기 가능 / 운영진만 쓰기
+    match /members/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 방문자 신청: 누구나 신청(create) / 운영진만 조회·수정·삭제
+    match /visitors/{id} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    // 챕터 설정: 누구나 읽기 / 운영진만 쓰기
+    match /config/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 운영진 목록: 운영진만 읽기·쓰기 (최초 설정은 Firebase 콘솔에서)
+    match /admins/{uid} {
+      allow read: if request.auth != null &&
+                     (request.auth.uid == uid || isAdmin());
+      allow write: if isAdmin();
+    }
+  }
+}
