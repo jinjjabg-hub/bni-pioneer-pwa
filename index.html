@@ -1584,15 +1584,15 @@ function getLast6Months() {
   return tabs;
 }
 
-// 시트 한 탭 읽기
+// 시트 한 탭 읽기 — 탭이 없거나 네트워크 오류 시 null 반환
 async function fetchSheetTab(tab) {
-  const url = `https://docs.google.com/spreadsheets/d/${SHEETS_ID}/gviz/tq?sheet=${tab}&tqx=out:json`;
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  const text = await res.text();
   try {
+    const url = `https://docs.google.com/spreadsheets/d/${SHEETS_ID}/gviz/tq?sheet=${tab}&tqx=out:json`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const text = await res.text();
     const json = JSON.parse(text.replace(/^[^{]*/, '').replace(/[^}]*$/, ''));
-    return json.table.rows;
+    return json.table?.rows ?? null;
   } catch { return null; }
 }
 
