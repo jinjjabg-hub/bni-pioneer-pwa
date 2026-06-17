@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ko" class="light">
 <head>
   <meta charset="UTF-8">
@@ -750,9 +750,6 @@ try {
   console.warn('Firebase 초기화 실패:', e.message);
 }
 
-// ── Google Sheets 설정 ───────────────────────────────────────────
-const SHEETS_ID = '1zmNQieMEX3IbovQHytoyuG3RztmGoGTImZlRkYnKKkc';
-
 // ── Utilities ────────────────────────────────────────────────────
 function getTrafficStatus(score) {
   if (score === null || score === undefined || score === '') return { label:'Grey', dotClass:'dot-grey', tlClass:'tl-grey', badgeClass:'badge-grey', emoji:'⚫' };
@@ -797,62 +794,6 @@ function setLoading(on) {
 function getKoreanMonth() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-}
-
-function calcTrafficScore(row) {
-  let score = 0;
-  const n = (k) => Number(String(row[k] ?? 0).replace(/,/g, '')) || 0;
-
-  // 총 주수: 출석 + 결석 + 병가 + 대리인 (0이면 1로 처리)
-  const totalWeeks = (n('출석') + n('결석') + n('병가') + n('대리인')) || 1;
-
-  // 결석(15점) - C열
-  const abs = n('결석');
-  if (abs === 0) score += 15; else if (abs === 1) score += 10; else if (abs === 2) score += 5;
-
-  // 정시도착(10점) - D열 지각조퇴
-  const late = n('지각조퇴');
-  if (late === 0) score += 10; else if (late === 1) score += 5;
-
-  // 주당리퍼럴(20점) - (G준T1 + H준T2) / 총주수
-  const ref = (n('준T1') + n('준T2')) / totalWeeks;
-  if (ref >= 1.2) score += 20; else if (ref >= 1.0) score += 15; else if (ref >= 0.75) score += 10; else if (ref >= 0.5) score += 5;
-
-  // 감사장금액(15점) - M열
-  const tyfcb = n('감사장금액');
-  if (tyfcb >= 100000000) score += 15; else if (tyfcb >= 50000000) score += 10; else if (tyfcb >= 25000000) score += 5;
-
-  // 주당비지터(20점) - K열 / 총주수
-  const vis = n('비지터') / totalWeeks;
-  if (vis >= 0.6) score += 20; else if (vis >= 0.4) score += 15; else if (vis >= 0.2) score += 10; else if (vis >= 0.1) score += 5;
-
-  // 주당121(10점) - L열 / 총주수
-  const o2o = n('1-2-1') / totalWeeks;
-  if (o2o >= 2) score += 10; else if (o2o >= 1) score += 5;
-
-  // 교육CEU(10점) - N열
-  const ceu = n('CEU');
-  if (ceu >= 20) score += 10; else if (ceu >= 10) score += 5;
-
-  return score;
-}
-
-async function fetchSheetsTraffic() {
-  const month = getKoreanMonth();
-  const url = `https://docs.google.com/spreadsheets/d/${SHEETS_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(month)}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Sheets ${res.status}`);
-  const text = await res.text();
-  const json = JSON.parse(text.replace(/^[^\{]*/, '').replace(/[^\}]*$/, ''));
-  if (json.status === 'error') throw new Error(json.errors?.[0]?.detailed_message || 'Sheets 오류');
-  const cols = json.table.cols.map(c => (c.label || c.id).trim());
-  return json.table.rows
-    .map(r => {
-      const obj = {};
-      r.c.forEach((cell, i) => { obj[cols[i]] = cell?.v ?? null; });
-      return obj;
-    })
-    .filter(row => Object.values(row).some(v => v !== null && v !== ''));
 }
 
 // ── Theme ────────────────────────────────────────────────────────
@@ -965,39 +906,12 @@ function renderHome(chapter) {
 
 // ── TRAFFIC LIGHT ────────────────────────────────────────────────
 async function loadTraffic() {
-  const month = getKoreanMonth();
+  const tab = getCurrentSheetTab();
   document.getElementById('traffic-table-body').innerHTML =
-    `<tr><td colspan="4" class="px-4 py-8 text-center text-sm" style="color:#9ca3af;">로딩중... (${month})</td></tr>`;
+    `<tr><td colspan="4" class="px-4 py-8 text-center text-sm" style="color:#9ca3af;">📊 ${tab} 데이터 로딩중...</td></tr>`;
   try {
-    const [membersResult, sheetsResult] = await Promise.allSettled([fetchMembers(), fetchSheetsTraffic()]);
-    const memberList = membersResult.status === 'fulfilled' ? membersResult.value : [];
-
-    if (sheetsResult.status === 'fulfilled' && sheetsResult.value.length > 0) {
-      const rows = sheetsResult.value;
-      const nameKey = '멤버이름' in rows[0] ? '멤버이름' : (['이름','성명','name'].find(k => k in rows[0]) ?? Object.keys(rows[0])[0]);
-      const scoreMap = {};
-      rows.forEach(row => {
-        const name = String(row[nameKey] ?? '').trim();
-        if (name) scoreMap[name] = calcTrafficScore(row);
-      });
-
-      const enriched = memberList.map(m => ({
-        ...m,
-        currentScore: scoreMap[m.name] !== undefined ? scoreMap[m.name] : (m.currentScore ?? null)
-      }));
-
-      const knownNames = new Set(memberList.map(m => m.name));
-      rows.forEach(row => {
-        const name = String(row[nameKey] ?? '').trim();
-        if (name && !knownNames.has(name)) {
-          enriched.push({ id: name, name, currentScore: calcTrafficScore(row) });
-        }
-      });
-
-      renderTraffic(enriched);
-    } else {
-      renderTraffic(memberList);
-    }
+    const members = await fetchTrafficMembers();
+    renderTraffic(members);
   } catch(e) {
     document.getElementById('traffic-table-body').innerHTML =
       '<tr><td colspan="4" class="px-4 py-8 text-center text-sm" style="color:#CC0000;">데이터 로딩 실패: ' + e.message + '</td></tr>';
@@ -1572,6 +1486,169 @@ window.removeAdminOps = async function(uid, name) {
 };
 
 // ── Firebase CRUD ────────────────────────────────────────────────
+// ── Google Sheets 트래픽 연동 ────────────────────────────────────
+const SHEETS_ID = '1zmNQieMEX3IbovQHytoyuG3RztmGoGTImZlRkYnKKkc';
+
+function getCurrentSheetTab() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+// PALMS 점수 계산 (BNI 공식 기준)
+// 결석(15점): 2번초과=0 / 2번=5 / 1번=10 / 없음=15
+// 정시도착(10점): 2번이상지각=0 / 1번=5 / 없음=10
+// 주당리퍼럴(20점): 0.5미만=0 / 0.75미만=5 / 1미만=10 / 1.2미만=15 / 1.2이상=20
+// 감사장금액(15점): 2500만미만=0 / 5000만미만=5 / 1억미만=10 / 1억이상=15
+// 주당비지터(20점): 0.1미만=0 / 0.2미만=5 / 0.4미만=10 / 0.6미만=15 / 0.6이상=20
+// 주당121(10점): 1미만=0 / 2미만=5 / 2이상=10
+// 교육(10점): 10미만=0 / 20미만=5 / 20이상=10
+function calcPalmsScore(row, totalWeeks) {
+  const get = (i) => Number(row[i]) || 0;
+  const weeks = totalWeeks || 4; // 기본 4주(1개월) — 6개월치면 약 24주
+
+  const absent   = get(3);  // 결석
+  const late     = get(4);  // 지각조퇴
+  const rgiT1    = get(7);  // 준T1
+  const rgiT2    = get(8);  // 준T2
+  const visitor  = get(11); // 비지터
+  const one21    = get(12); // 1-2-1
+  const thanks   = get(13); // 감사장 금액
+  const ceu      = get(14); // CEU
+
+  // 결석 (15점)
+  let absentScore;
+  if (absent === 0)       absentScore = 15;
+  else if (absent === 1)  absentScore = 10;
+  else if (absent === 2)  absentScore = 5;
+  else                    absentScore = 0;
+
+  // 정시도착 (10점)
+  let lateScore;
+  if (late === 0)       lateScore = 10;
+  else if (late === 1)  lateScore = 5;
+  else                  lateScore = 0;
+
+  // 주당 리퍼럴 (20점) — 준T1+T2 합산
+  const rgiPerWeek = (rgiT1 + rgiT2) / weeks;
+  let rgiScore;
+  if (rgiPerWeek >= 1.2)      rgiScore = 20;
+  else if (rgiPerWeek >= 1.0) rgiScore = 15;
+  else if (rgiPerWeek >= 0.75)rgiScore = 10;
+  else if (rgiPerWeek >= 0.5) rgiScore = 5;
+  else                         rgiScore = 0;
+
+  // 감사장 금액 (15점) — 원 단위
+  let thanksScore;
+  if (thanks >= 100000000)      thanksScore = 15; // 1억 이상
+  else if (thanks >= 50000000)  thanksScore = 10; // 5천만 이상
+  else if (thanks >= 25000000)  thanksScore = 5;  // 2천5백만 이상
+  else                           thanksScore = 0;
+
+  // 주당 비지터 (20점)
+  const visitorPerWeek = visitor / weeks;
+  let visitorScore;
+  if (visitorPerWeek >= 0.6)      visitorScore = 20;
+  else if (visitorPerWeek >= 0.4) visitorScore = 15;
+  else if (visitorPerWeek >= 0.2) visitorScore = 10;
+  else if (visitorPerWeek >= 0.1) visitorScore = 5;
+  else                             visitorScore = 0;
+
+  // 주당 121 (10점)
+  const onePerWeek = one21 / weeks;
+  let oneScore;
+  if (onePerWeek >= 2)      oneScore = 10;
+  else if (onePerWeek >= 1) oneScore = 5;
+  else                       oneScore = 0;
+
+  // 교육 CEU (10점)
+  let ceuScore;
+  if (ceu >= 20)      ceuScore = 10;
+  else if (ceu >= 10) ceuScore = 5;
+  else                 ceuScore = 0;
+
+  const total = absentScore + lateScore + rgiScore + thanksScore + visitorScore + oneScore + ceuScore;
+  return Math.max(0, Math.min(total, 100));
+}
+
+// 최근 6개월 탭 이름 생성
+function getLast6Months() {
+  const tabs = [];
+  const now = new Date();
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    tabs.push(`${y}-${m}`);
+  }
+  return tabs;
+}
+
+// 시트 한 탭 읽기
+async function fetchSheetTab(tab) {
+  const url = `https://docs.google.com/spreadsheets/d/${SHEETS_ID}/gviz/tq?sheet=${tab}&tqx=out:json`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const text = await res.text();
+  try {
+    const json = JSON.parse(text.replace(/^[^{]*/, '').replace(/[^}]*$/, ''));
+    return json.table.rows;
+  } catch { return null; }
+}
+
+async function fetchSheetsTraffic() {
+  const tabs = getLast6Months(); // ['2026-06','2026-05',...,'2026-01']
+  const totalWeeks = tabs.length * 4; // 6개월 = 약 24주
+
+  // 멤버별 누적 데이터 저장
+  const memberMap = {}; // name -> 누적 row 배열
+
+  for (const tab of tabs) {
+    const rows = await fetchSheetTab(tab);
+    if (!rows) continue;
+    for (let i = 2; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || !row.c) continue;
+      const getVal = (idx) => Number(row.c[idx]?.v) || 0;
+      const nameRaw = row.c[0]?.v;
+      if (!nameRaw) continue;
+      const name = String(nameRaw).trim();
+      if (!name || name === '멤버 이름') continue;
+
+      if (!memberMap[name]) {
+        memberMap[name] = {
+          absent:0, late:0, rgiT1:0, rgiT2:0,
+          visitor:0, one21:0, thanks:0, ceu:0
+        };
+      }
+      memberMap[name].absent   += getVal(3);
+      memberMap[name].late     += getVal(4);
+      memberMap[name].rgiT1    += getVal(7);
+      memberMap[name].rgiT2    += getVal(8);
+      memberMap[name].visitor  += getVal(11);
+      memberMap[name].one21    += getVal(12);
+      memberMap[name].thanks   += getVal(13);
+      memberMap[name].ceu      += getVal(14);
+    }
+  }
+
+  const members = [];
+  for (const [name, d] of Object.entries(memberMap)) {
+    // 누적값을 배열 형태로 변환해서 calcPalmsScore 재사용
+    const rowArr = [name,'',0, d.absent, d.late, 0, 0, d.rgiT1, d.rgiT2, 0, 0, d.visitor, d.one21, d.thanks, d.ceu];
+    const score = calcPalmsScore(rowArr, totalWeeks);
+    members.push({
+      id: name,
+      name: name,
+      industry: '',
+      currentScore: score,
+      dicaUrl: null,
+    });
+  }
+  return members;
+}
+
 async function fetchMembers() {
   if (memberCache) return memberCache;
   if (!firebaseReady) return [];
@@ -1579,6 +1656,24 @@ async function fetchMembers() {
   memberCache = snap.docs.map(d => ({id:d.id, ...d.data()}));
   memberCache.sort((a,b) => (a.name||'').localeCompare(b.name||'','ko'));
   return memberCache;
+}
+
+// 트래픽 화면은 Sheets에서, 멤버 화면은 Firebase에서
+async function fetchTrafficMembers() {
+  try {
+    const sheetMembers = await fetchSheetsTraffic();
+    if (sheetMembers.length > 0) {
+      // Firebase 멤버 데이터와 병합 (DiCA URL, 업종 등)
+      const fbMembers = await fetchMembers().catch(() => []);
+      return sheetMembers.map(sm => {
+        const fb = fbMembers.find(f => f.name && sm.name && f.name.includes(sm.name.split(' ')[0]));
+        return { ...sm, industry: fb?.industry || '', dicaUrl: fb?.dicaUrl || null };
+      });
+    }
+  } catch(e) {
+    console.warn('Sheets 연동 실패, Firebase 사용:', e.message);
+  }
+  return fetchMembers();
 }
 
 async function fetchChapter() {
@@ -1633,4 +1728,3 @@ initApp();
 </script>
 </body>
 </html>
-
