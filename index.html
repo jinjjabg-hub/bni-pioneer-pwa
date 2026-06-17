@@ -1496,71 +1496,70 @@ function getCurrentSheetTab() {
   return `${y}-${m}`;
 }
 
-// PALMS 점수 계산 (BNI 공식 기준)
-// 결석(15점): 2번초과=0 / 2번=5 / 1번=10 / 없음=15
-// 정시도착(10점): 2번이상지각=0 / 1번=5 / 없음=10
-// 주당리퍼럴(20점): 0.5미만=0 / 0.75미만=5 / 1미만=10 / 1.2미만=15 / 1.2이상=20
-// 감사장금액(15점): 2500만미만=0 / 5000만미만=5 / 1억미만=10 / 1억이상=15
-// 주당비지터(20점): 0.1미만=0 / 0.2미만=5 / 0.4미만=10 / 0.6미만=15 / 0.6이상=20
-// 주당121(10점): 1미만=0 / 2미만=5 / 2이상=10
-// 교육(10점): 10미만=0 / 20미만=5 / 20이상=10
-function calcPalmsScore(row, totalWeeks) {
+// PALMS 점수 계산 (BNI 공식 기준 — 엑셀 수식과 동일)
+// 분모 = 총 미팅 횟수 (출석+결석+지각+병가+대리인)
+function calcPalmsScore(row) {
   const get = (i) => Number(row[i]) || 0;
-  const weeks = totalWeeks || 4; // 기본 4주(1개월) — 6개월치면 약 24주
 
-  const absent   = get(3);  // 결석
-  const late     = get(4);  // 지각조퇴
-  const rgiT1    = get(7);  // 준T1
-  const rgiT2    = get(8);  // 준T2
-  const visitor  = get(11); // 비지터
-  const one21    = get(12); // 1-2-1
-  const thanks   = get(13); // 감사장 금액
-  const ceu      = get(14); // CEU
+  const attend  = get(2);  // 출석
+  const absent  = get(3);  // 결석
+  const late    = get(4);  // 지각조퇴
+  const sick    = get(5);  // 병가
+  const sub     = get(6);  // 대리인
+  const rgiT1   = get(7);  // 준T1
+  const rgiT2   = get(8);  // 준T2
+  const visitor = get(11); // 비지터
+  const one21   = get(12); // 1-2-1
+  const thanks  = get(13); // 감사장 금액
+  const ceu     = get(14); // CEU
+
+  // 총 미팅 횟수 — 엑셀 공식: C+D+E+F+G
+  const totalMeetings = (attend + absent + late + sick + sub) || 1;
 
   // 결석 (15점)
   let absentScore;
-  if (absent === 0)       absentScore = 15;
-  else if (absent === 1)  absentScore = 10;
-  else if (absent === 2)  absentScore = 5;
-  else                    absentScore = 0;
+  if (absent > 2)        absentScore = 0;
+  else if (absent === 2) absentScore = 5;
+  else if (absent === 1) absentScore = 10;
+  else                   absentScore = 15;
 
   // 정시도착 (10점)
   let lateScore;
-  if (late === 0)       lateScore = 10;
-  else if (late === 1)  lateScore = 5;
-  else                  lateScore = 0;
+  if (late >= 2)       lateScore = 0;
+  else if (late === 1) lateScore = 5;
+  else                 lateScore = 10;
 
-  // 주당 리퍼럴 (20점) — 준T1+T2 합산
-  const rgiPerWeek = (rgiT1 + rgiT2) / weeks;
+  // 주당 리퍼럴 (20점) — (RGI내부+RGI외부) / 총미팅수
+  const rgiPer = (rgiT1 + rgiT2) / totalMeetings;
   let rgiScore;
-  if (rgiPerWeek >= 1.2)      rgiScore = 20;
-  else if (rgiPerWeek >= 1.0) rgiScore = 15;
-  else if (rgiPerWeek >= 0.75)rgiScore = 10;
-  else if (rgiPerWeek >= 0.5) rgiScore = 5;
-  else                         rgiScore = 0;
+  if (rgiPer >= 1.2)       rgiScore = 20;
+  else if (rgiPer >= 1.0)  rgiScore = 15;
+  else if (rgiPer >= 0.75) rgiScore = 10;
+  else if (rgiPer >= 0.5)  rgiScore = 5;
+  else                      rgiScore = 0;
 
-  // 감사장 금액 (15점) — 원 단위
+  // 감사장 금액 (15점)
   let thanksScore;
-  if (thanks >= 100000000)      thanksScore = 15; // 1억 이상
-  else if (thanks >= 50000000)  thanksScore = 10; // 5천만 이상
-  else if (thanks >= 25000000)  thanksScore = 5;  // 2천5백만 이상
-  else                           thanksScore = 0;
+  if (thanks >= 100000000)     thanksScore = 15;
+  else if (thanks >= 50000000) thanksScore = 10;
+  else if (thanks >= 25000000) thanksScore = 5;
+  else                          thanksScore = 0;
 
-  // 주당 비지터 (20점)
-  const visitorPerWeek = visitor / weeks;
+  // 주당 비지터 (20점) — 비지터 / 총미팅수
+  const visitorPer = visitor / totalMeetings;
   let visitorScore;
-  if (visitorPerWeek >= 0.6)      visitorScore = 20;
-  else if (visitorPerWeek >= 0.4) visitorScore = 15;
-  else if (visitorPerWeek >= 0.2) visitorScore = 10;
-  else if (visitorPerWeek >= 0.1) visitorScore = 5;
-  else                             visitorScore = 0;
+  if (visitorPer >= 0.6)      visitorScore = 20;
+  else if (visitorPer >= 0.4) visitorScore = 15;
+  else if (visitorPer >= 0.2) visitorScore = 10;
+  else if (visitorPer >= 0.1) visitorScore = 5;
+  else                         visitorScore = 0;
 
-  // 주당 121 (10점)
-  const onePerWeek = one21 / weeks;
+  // 주당 121 (10점) — 121 / 총미팅수
+  const onePer = one21 / totalMeetings;
   let oneScore;
-  if (onePerWeek >= 2)      oneScore = 10;
-  else if (onePerWeek >= 1) oneScore = 5;
-  else                       oneScore = 0;
+  if (onePer >= 2)      oneScore = 10;
+  else if (onePer >= 1) oneScore = 5;
+  else                   oneScore = 0;
 
   // 교육 CEU (10점)
   let ceuScore;
@@ -1622,14 +1621,14 @@ async function fetchSheetsTraffic() {
           visitor:0, one21:0, thanks:0, ceu:0
         };
       }
-      memberMap[name].absent   += getVal(2);  // C=결석
-      memberMap[name].late     += getVal(3);  // D=지각조퇴
-      memberMap[name].rgiT1    += getVal(6);  // G=준T1
-      memberMap[name].rgiT2    += getVal(7);  // H=준T2
-      memberMap[name].visitor  += getVal(10); // K=비지터
-      memberMap[name].one21    += getVal(11); // L=1-2-1
-      memberMap[name].thanks   += getVal(12); // M=감사장금액
-      memberMap[name].ceu      += getVal(13); // N=CEU
+      memberMap[name].absent   += getVal(3);
+      memberMap[name].late     += getVal(4);
+      memberMap[name].rgiT1    += getVal(7);
+      memberMap[name].rgiT2    += getVal(8);
+      memberMap[name].visitor  += getVal(11);
+      memberMap[name].one21    += getVal(12);
+      memberMap[name].thanks   += getVal(13);
+      memberMap[name].ceu      += getVal(14);
     }
   }
 
@@ -1637,7 +1636,7 @@ async function fetchSheetsTraffic() {
   for (const [name, d] of Object.entries(memberMap)) {
     // 누적값을 배열 형태로 변환해서 calcPalmsScore 재사용
     const rowArr = [name,'',0, d.absent, d.late, 0, 0, d.rgiT1, d.rgiT2, 0, 0, d.visitor, d.one21, d.thanks, d.ceu];
-    const score = calcPalmsScore(rowArr, totalWeeks);
+    const score = calcPalmsScore(rowArr);
     members.push({
       id: name,
       name: name,
