@@ -1617,12 +1617,16 @@ async function fetchSheetsTraffic() {
 
       if (!memberMap[name]) {
         memberMap[name] = {
-          absent:0, late:0, rgiT1:0, rgiT2:0,
+          attend:0, absent:0, late:0, sick:0, sub:0,
+          rgiT1:0, rgiT2:0,
           visitor:0, one21:0, thanks:0, ceu:0
         };
       }
+      memberMap[name].attend   += getVal(2);
       memberMap[name].absent   += getVal(3);
       memberMap[name].late     += getVal(4);
+      memberMap[name].sick     += getVal(5);
+      memberMap[name].sub      += getVal(6);
       memberMap[name].rgiT1    += getVal(7);
       memberMap[name].rgiT2    += getVal(8);
       memberMap[name].visitor  += getVal(11);
@@ -1635,7 +1639,7 @@ async function fetchSheetsTraffic() {
   const members = [];
   for (const [name, d] of Object.entries(memberMap)) {
     // 누적값을 배열 형태로 변환해서 calcPalmsScore 재사용
-    const rowArr = [name,'',0, d.absent, d.late, 0, 0, d.rgiT1, d.rgiT2, 0, 0, d.visitor, d.one21, d.thanks, d.ceu];
+    const rowArr = [name,'', d.attend, d.absent, d.late, d.sick, d.sub, d.rgiT1, d.rgiT2, 0, 0, d.visitor, d.one21, d.thanks, d.ceu];
     const score = calcPalmsScore(rowArr);
     members.push({
       id: name,
