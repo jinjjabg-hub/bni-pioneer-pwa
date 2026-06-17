@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ko" class="light">
 <head>
   <meta charset="UTF-8">
@@ -750,6 +750,9 @@ try {
   console.warn('Firebase 초기화 실패:', e.message);
 }
 
+// ── Google Sheets 설정 ───────────────────────────────────────────
+const SHEETS_ID = '1zmNQieMEX3IbovQHytoyuG3RztmGoGTImZlRkYnKKkc';
+
 // ── Utilities ────────────────────────────────────────────────────
 function getTrafficStatus(score) {
   if (score === null || score === undefined || score === '') return { label:'Grey', dotClass:'dot-grey', tlClass:'tl-grey', badgeClass:'badge-grey', emoji:'⚫' };
@@ -794,6 +797,57 @@ function setLoading(on) {
 function getKoreanMonth() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+}
+
+function calcTrafficScore(row) {
+  let score = 0;
+  const v = (keys) => {
+    for (const k of keys) {
+      const val = row[k];
+      if (val !== undefined && val !== null && val !== '') return Number(String(val).replace(/,/g,'')) || 0;
+    }
+    return 0;
+  };
+  // 결석(15점): 없음=15 / 1번=10 / 2번=5 / 초과=0
+  const abs = v(['결석','결석횟수','absence']);
+  if (abs === 0) score += 15; else if (abs === 1) score += 10; else if (abs === 2) score += 5;
+  // 정시도착(10점): 없음=10 / 1번=5 / 2번이상=0
+  const late = v(['정시도착','지각','정시도착위반','late']);
+  if (late === 0) score += 10; else if (late === 1) score += 5;
+  // 주당리퍼럴(20점): 1.2이상=20 / 1.0=15 / 0.75=10 / 0.5=5 / 미만=0
+  const ref = v(['주당리퍼럴','리퍼럴','referral']);
+  if (ref >= 1.2) score += 20; else if (ref >= 1.0) score += 15; else if (ref >= 0.75) score += 10; else if (ref >= 0.5) score += 5;
+  // 감사장금액(15점): 1억이상=15 / 5천만=10 / 2500만=5 / 미만=0
+  const tyfcb = v(['감사장금액','감사장','tyfcb']);
+  if (tyfcb >= 100000000) score += 15; else if (tyfcb >= 50000000) score += 10; else if (tyfcb >= 25000000) score += 5;
+  // 주당비지터(20점): 0.6이상=20 / 0.4=15 / 0.2=10 / 0.1=5 / 미만=0
+  const vis = v(['주당비지터','비지터','visitor']);
+  if (vis >= 0.6) score += 20; else if (vis >= 0.4) score += 15; else if (vis >= 0.2) score += 10; else if (vis >= 0.1) score += 5;
+  // 주당121(10점): 2이상=10 / 1이상=5 / 미만=0
+  const o2o = v(['주당121','121','one21']);
+  if (o2o >= 2) score += 10; else if (o2o >= 1) score += 5;
+  // 교육CEU(10점): 20이상=10 / 10이상=5 / 미만=0
+  const ceu = v(['교육CEU','CEU','ceu','교육']);
+  if (ceu >= 20) score += 10; else if (ceu >= 10) score += 5;
+  return score;
+}
+
+async function fetchSheetsTraffic() {
+  const month = getKoreanMonth();
+  const url = `https://docs.google.com/spreadsheets/d/${SHEETS_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(month)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Sheets ${res.status}`);
+  const text = await res.text();
+  const json = JSON.parse(text.replace(/^[^\{]*/, '').replace(/[^\}]*$/, ''));
+  if (json.status === 'error') throw new Error(json.errors?.[0]?.detailed_message || 'Sheets 오류');
+  const cols = json.table.cols.map(c => (c.label || c.id).trim());
+  return json.table.rows
+    .map(r => {
+      const obj = {};
+      r.c.forEach((cell, i) => { obj[cols[i]] = cell?.v ?? null; });
+      return obj;
+    })
+    .filter(row => Object.values(row).some(v => v !== null && v !== ''));
 }
 
 // ── Theme ────────────────────────────────────────────────────────
@@ -906,11 +960,39 @@ function renderHome(chapter) {
 
 // ── TRAFFIC LIGHT ────────────────────────────────────────────────
 async function loadTraffic() {
+  const month = getKoreanMonth();
   document.getElementById('traffic-table-body').innerHTML =
-    '<tr><td colspan="4" class="px-4 py-8 text-center text-sm" style="color:#9ca3af;">로딩중...</td></tr>';
+    `<tr><td colspan="4" class="px-4 py-8 text-center text-sm" style="color:#9ca3af;">로딩중... (${month})</td></tr>`;
   try {
-    const members = await fetchMembers();
-    renderTraffic(members);
+    const [membersResult, sheetsResult] = await Promise.allSettled([fetchMembers(), fetchSheetsTraffic()]);
+    const memberList = membersResult.status === 'fulfilled' ? membersResult.value : [];
+
+    if (sheetsResult.status === 'fulfilled' && sheetsResult.value.length > 0) {
+      const rows = sheetsResult.value;
+      const nameKey = ['이름','성명','name'].find(k => k in rows[0]) ?? Object.keys(rows[0])[0];
+      const scoreMap = {};
+      rows.forEach(row => {
+        const name = String(row[nameKey] ?? '').trim();
+        if (name) scoreMap[name] = calcTrafficScore(row);
+      });
+
+      const enriched = memberList.map(m => ({
+        ...m,
+        currentScore: scoreMap[m.name] !== undefined ? scoreMap[m.name] : (m.currentScore ?? null)
+      }));
+
+      const knownNames = new Set(memberList.map(m => m.name));
+      rows.forEach(row => {
+        const name = String(row[nameKey] ?? '').trim();
+        if (name && !knownNames.has(name)) {
+          enriched.push({ id: name, name, currentScore: calcTrafficScore(row) });
+        }
+      });
+
+      renderTraffic(enriched);
+    } else {
+      renderTraffic(memberList);
+    }
   } catch(e) {
     document.getElementById('traffic-table-body').innerHTML =
       '<tr><td colspan="4" class="px-4 py-8 text-center text-sm" style="color:#CC0000;">데이터 로딩 실패: ' + e.message + '</td></tr>';
@@ -1546,3 +1628,4 @@ initApp();
 </script>
 </body>
 </html>
+
