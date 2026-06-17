@@ -1622,14 +1622,14 @@ async function fetchSheetsTraffic() {
           visitor:0, one21:0, thanks:0, ceu:0
         };
       }
-      memberMap[name].absent   += getVal(3);
-      memberMap[name].late     += getVal(4);
-      memberMap[name].rgiT1    += getVal(7);
-      memberMap[name].rgiT2    += getVal(8);
-      memberMap[name].visitor  += getVal(11);
-      memberMap[name].one21    += getVal(12);
-      memberMap[name].thanks   += getVal(13);
-      memberMap[name].ceu      += getVal(14);
+      memberMap[name].absent   += getVal(2);  // C=결석
+      memberMap[name].late     += getVal(3);  // D=지각조퇴
+      memberMap[name].rgiT1    += getVal(6);  // G=준T1
+      memberMap[name].rgiT2    += getVal(7);  // H=준T2
+      memberMap[name].visitor  += getVal(10); // K=비지터
+      memberMap[name].one21    += getVal(11); // L=1-2-1
+      memberMap[name].thanks   += getVal(12); // M=감사장금액
+      memberMap[name].ceu      += getVal(13); // N=CEU
     }
   }
 
